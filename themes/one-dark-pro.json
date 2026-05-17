@@ -3,19 +3,19 @@
   "name": "one-dark-pro",
   "vars": {
     "bg": "#282c34",
-    "panel": "#21252b",
+    "panel": "#282C33",
     "panelAlt": "#1b1d23",
     "panelSoft": "#2c313c",
     "border": "#3e4452",
     "text": "#abb2bf",
     "dim": "#5c6370",
-    "blue": "#61afef",
+    "blue": "#61afee",
     "cyan": "#56b6c2",
-    "green": "#98c379",
-    "red": "#e06c75",
-    "yellow": "#e5c07b",
+    "green": "#98C379",
+    "red": "#e06c74",
+    "yellow": "#d19a65",
     "orange": "#d19a66",
-    "purple": "#c678dd"
+    "purple": "#c677dc"
   },
   "colors": {
     "accent": "blue",
@@ -71,8 +71,8 @@
     "bashMode": "orange"
   },
   "export": {
-    "pageBg": "#282c34",
-    "cardBg": "#21252b",
-    "infoBg": "#1b1d23"
+    "pageBg": "bg",
+    "cardBg": "panel",
+    "infoBg": "surface"
   }
 }
