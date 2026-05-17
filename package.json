@@ -1,0 +1,54 @@
+{
+  "name": "@yboyer/pi",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Pi package with custom extensions, skills, and prompt templates.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "extensions",
+    "skills",
+    "prompts",
+    "themes"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yboyer/pi.git"
+  },
+  "homepage": "https://github.com/yboyer/pi",
+  "bugs": {
+    "url": "https://github.com/yboyer/pi/issues"
+  },
+  "files": [
+    "extensions",
+    "skills",
+    "themes",
+    "prompts",
+    "README.md"
+  ],
+  "scripts": {
+    "lint": "biome check ."
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts"
+    ],
+    "themes": [
+      "./themes"
+    ]
+  },
+  "devDependencies": {
+    "@yboyer/config": "1.3.0"
+  }
+}
