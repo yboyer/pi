@@ -1,0 +1,235 @@
+/**
+ * Custom Footer Extension - demonstrates ctx.ui.setFooter()
+ *
+ * footerData exposes data not otherwise accessible:
+ * - getGitBranch(): current git branch
+ * - getExtensionStatuses(): texts from ctx.ui.setStatus()
+ *
+ * Token stats come from ctx.sessionManager/ctx.model (already accessible).
+ */
+
+import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui'
+
+function formatTokens(count: number): string {
+  if (count < 1000) return count.toString()
+  if (count < 10000) return `${(count / 1000).toFixed(1)}k`
+  if (count < 1000000) return `${Math.round(count / 1000)}k`
+  if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`
+  return `${Math.round(count / 1000000)}M`
+}
+
+/**
+ * Sanitize text for display in a single-line status.
+ * Removes newlines, tabs, carriage returns, and other control characters.
+ */
+function sanitizeStatusText(text: string): string {
+  // Replace newlines, tabs, carriage returns with space, then collapse multiple spaces
+  return text
+    .replace(/[\r\n\t]/g, " ")
+    .replace(/ +/g, " ")
+    .trim();
+}
+
+export default function (pi: ExtensionAPI) {
+  function installFooter(ctx: ExtensionContext) {
+    ctx.ui.setFooter((tui, theme, footerData) => {
+      const unsub = footerData.onBranchChange(() => tui.requestRender())
+
+      return {
+        dispose: unsub,
+        invalidate() { },
+        render(width: number): string[] {
+          const extensionStatuses = footerData.getExtensionStatuses();
+          const extensionStatusesClone = new Map(extensionStatuses); // Clone to avoid mutating original
+          extensionStatusesClone.forEach((value, key) => {
+            // Sanitize status text to prevent control characters from breaking the footer layout
+            const sanitized = sanitizeStatusText(value);
+            extensionStatusesClone.set(key, sanitized);
+          });
+
+
+          // Compute tokens from ctx (already accessible to extensions)
+          let totalInput = 0
+          let totalOutput = 0
+          let totalCost = 0
+          let totalCacheRead = 0
+          let totalCacheWrite = 0
+          for (const entry of ctx.sessionManager.getBranch()) {
+            if (entry.type === 'message' && entry.message.role === 'assistant') {
+              const m = entry.message
+              totalInput += m.usage.input
+              totalOutput += m.usage.output
+              totalCacheRead += m.usage.cacheRead
+              totalCacheWrite += m.usage.cacheWrite
+              totalCost += m.usage.cost.total
+            }
+          }
+
+          // Calculate context usage from session (handles compaction correctly).
+          // After compaction, tokens are unknown until the next LLM response.
+          const contextUsage = ctx.getContextUsage()
+          const contextWindow = contextUsage?.contextWindow ?? ctx.model?.contextWindow ?? 0
+          const contextPercentValue = contextUsage?.percent ?? 0
+          const contextPercent =
+            contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : '?'
+
+          // Replace home directory with ~
+          let pwd = ctx.cwd
+          const home = process.env.HOME || process.env.USERPROFILE
+          if (home && pwd.startsWith(home)) {
+            pwd = `~${pwd.slice(home.length)}`
+          }
+
+          // Add session name if set
+          const sessionName = ctx.sessionManager.getSessionName()
+          if (sessionName) {
+            pwd = `${pwd} • ${sessionName}`
+          }
+
+          // Build stats line
+          const statsParts = []
+          if (totalInput) statsParts.push(`↑${formatTokens(totalInput)}`)
+          if (totalOutput) statsParts.push(`↓${formatTokens(totalOutput)}`)
+          if (totalCacheRead) statsParts.push(`R${formatTokens(totalCacheRead)}`)
+          if (totalCacheWrite) statsParts.push(`W${formatTokens(totalCacheWrite)}`)
+
+          if (statsParts.length > 0) {
+            statsParts.push('•')
+          }
+
+          // Colorize context percentage based on usage
+          let contextPercentStr: string
+          const contextPercentDisplay =
+            contextPercent === '?'
+              ? `?/${formatTokens(contextWindow)}`
+              : `${contextPercent}%/${formatTokens(contextWindow)}`
+          if (contextPercentValue > 90) {
+            contextPercentStr = theme.fg('error', contextPercentDisplay)
+          } else if (contextPercentValue > 70) {
+            contextPercentStr = theme.fg('warning', contextPercentDisplay)
+          } else {
+            contextPercentStr = contextPercentDisplay
+          }
+          statsParts.push(contextPercentStr)
+
+          statsParts.push('•')
+
+          // Show cost with "(sub)" indicator if using OAuth subscription
+          const usingSubscription = ctx.model ? ctx.modelRegistry.isUsingOAuth(ctx.model) : false
+          if (totalCost || usingSubscription) {
+            const costStr = `$${totalCost.toFixed(3)}${usingSubscription ? ' (sub)' : ''}`
+            statsParts.push(costStr)
+          }
+
+          statsParts.push('•')
+
+          if (ctx.model?.provider === 'github-copilot') {
+            statsParts.push(extensionStatusesClone.get('copilot-usage') ?? '')
+            extensionStatusesClone.delete('copilot-usage') // Remove from extension statuses to avoid duplication in the extension status line
+          }
+
+          let statsLeft = statsParts.join(' ')
+
+
+          // Add model name on the right side, plus thinking level if model supports it
+          const modelName = ctx.model?.id || "no-model";
+
+          let statsLeftWidth = visibleWidth(statsLeft);
+
+          // If statsLeft is too wide, truncate it
+          if (statsLeftWidth > width) {
+            statsLeft = truncateToWidth(statsLeft, width, "...");
+            statsLeftWidth = visibleWidth(statsLeft);
+          }
+
+          // Calculate available space for padding (minimum 2 spaces between stats and model)
+          const minPadding = 2;
+
+          // Add thinking level indicator if model supports reasoning
+          let rightSide = modelName;
+          if (ctx.model?.reasoning) {
+            const thinkingLevel = pi.getThinkingLevel() || "off";
+            rightSide = `${modelName} • ${(thinkingLevel === "off" ? 'thinking off' : thinkingLevel)}`
+          }
+
+          const rightSideWidth = visibleWidth(rightSide);
+          const totalNeeded = statsLeftWidth + minPadding + rightSideWidth;
+
+          let statsLine: string;
+          if (totalNeeded <= width) {
+            // Both fit - add padding to right-align model
+            const padding = " ".repeat(width - statsLeftWidth - rightSideWidth);
+            statsLine = statsLeft + padding + rightSide;
+          } else {
+            // Need to truncate right side
+            const availableForRight = width - statsLeftWidth - minPadding;
+            if (availableForRight > 0) {
+              const truncatedRight = truncateToWidth(rightSide, availableForRight, "");
+              const truncatedRightWidth = visibleWidth(truncatedRight);
+              const padding = " ".repeat(Math.max(0, width - statsLeftWidth - truncatedRightWidth));
+              statsLine = statsLeft + padding + truncatedRight;
+            } else {
+              // Not enough space for right side at all
+              statsLine = statsLeft;
+            }
+          }
+
+          // Apply dim to each part separately. statsLeft may contain color codes (for context %)
+          // that end with a reset, which would clear an outer dim wrapper. So we dim the parts
+          // before and after the colored section independently.
+          const dimStatsLeft = theme.fg("dim", statsLeft);
+          const remainder = statsLine.slice(statsLeft.length); // padding + rightSide
+          const dimRemainder = theme.fg("dim", remainder);
+
+
+
+          const pwdLine = truncateToWidth(theme.fg("dim", pwd), width, theme.fg("dim", "..."));
+          const lines = [pwdLine, dimStatsLeft + dimRemainder];
+
+          // Add extension statuses on a single line, sorted by key alphabetically
+          if (extensionStatusesClone.size > 0) {
+            const sortedStatuses = Array.from(extensionStatusesClone.entries())
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([, text]) => sanitizeStatusText(text));
+            const statusLine = sortedStatuses.join(" ");
+            // Truncate to terminal width with dim ellipsis for consistency with footer style
+            lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
+          }
+
+          return lines;
+        },
+      }
+    })
+  }
+
+  pi.on('session_start', (_event, ctx) => {
+    if (!ctx.hasUI) return
+    installFooter(ctx)
+  })
+
+  pi.on('session_shutdown', (_event, ctx) => {
+    if (ctx.hasUI) ctx.ui.setFooter(undefined)
+  })
+
+  pi.on("thinking_level_select", async (_event, ctx) => {
+    if (!ctx.hasUI) return;
+    installFooter(ctx);
+  });
+
+  pi.registerCommand('footer', {
+    description: 'Enable the blue flowing gradient session footer',
+    async handler(_args, ctx) {
+      installFooter(ctx)
+      ctx.ui.notify('Custom footer enabled', 'info')
+    },
+  })
+
+  pi.registerCommand('footer-builtin', {
+    description: "Restore pi's built-in footer for this session",
+    async handler(_args, ctx) {
+      ctx.ui.setFooter(undefined)
+      ctx.ui.notify('Built-in footer restored', 'info')
+    },
+  })
+}

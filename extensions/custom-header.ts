@@ -104,15 +104,15 @@ export default function (pi: ExtensionAPI) {
     if (ctx.hasUI) ctx.ui.setHeader(undefined)
   })
 
-  pi.registerCommand('flow-title', {
+  pi.registerCommand('header', {
     description: 'Enable the blue flowing gradient session header',
     handler: async (_args, ctx) => {
       installHeader(ctx)
-      ctx.ui.notify('Flow title enabled', 'info')
+      ctx.ui.notify('Custom header enabled', 'info')
     },
   })
 
-  pi.registerCommand('flow-title-builtin', {
+  pi.registerCommand('header-builtin', {
     description: "Restore pi's built-in header for this session",
     handler: async (_args, ctx) => {
       ctx.ui.setHeader(undefined)

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent'
+import type { ExtensionAPI, ExtensionContext, Theme } from '@earendil-works/pi-coding-agent'
 
 const execFileAsync = promisify(execFile)
 const STATUS_KEY = 'copilot-usage'
@@ -32,9 +32,21 @@ type CopilotUserResponse = {
   }
 }
 
-type UsageState = {
-  status: string
-  detail: string
+type UsageState = (
+  | {
+    type: 'error'
+    error: string
+  }
+  | {
+    type: 'success'
+    percentage: number
+    used: number
+    entitlement: number
+  } | {
+    type: 'loading'
+  }
+) & {
+  details: string
 }
 
 function formatNumber(value: number): string {
@@ -45,7 +57,7 @@ function formatNumber(value: number): string {
 }
 
 function formatDate(value?: string): string {
-  if (!value) return 'inconnue'
+  if (!value) return 'unknown'
 
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
@@ -62,15 +74,19 @@ function buildUsageState(payload: CopilotUserResponse): UsageState {
   const snapshot = payload.quota_snapshots?.premium_interactions
   if (!snapshot) {
     return {
-      status: 'GH: indisponible',
-      detail: 'Quota `premium_interactions` absent dans réponse GitHub.',
+      type: 'error',
+      error: 'unavailable',
+      details: 'Missing `premium_interactions`',
     }
   }
 
   if (snapshot.unlimited) {
     return {
-      status: 'GH: illimitées',
-      detail: 'Plan sans quota mensuel pour `premium_interactions`.',
+      type: 'success',
+      entitlement: Infinity,
+      percentage: 0,
+      used: 0,
+      details: 'No monthly quota for `premium_interactions` plan.',
     }
   }
 
@@ -80,12 +96,15 @@ function buildUsageState(payload: CopilotUserResponse): UsageState {
   const used = Math.floor(Math.max(0, entitlement - remaining))
   const percentUsed = Math.floor(Math.max(0, Math.min(100, 100 - percentRemaining)))
   const resetAt = formatDate(payload.quota_reset_date_utc ?? payload.quota_reset_date)
-  const overage = snapshot.overage_permitted ? 'oui' : 'non'
-  const plan = payload.copilot_plan ?? 'inconnu'
+  const overage = snapshot.overage_permitted ? 'yes' : 'no'
+  const plan = payload.copilot_plan ?? 'unknown'
 
   return {
-    status: `${formatNumber(percentUsed)}% (${formatNumber(used)} / ${formatNumber(entitlement)})`,
-    detail: `Plan: ${plan} · restant: ${formatNumber(remaining)} · reset: ${resetAt} · overage: ${overage}`,
+    type: 'success',
+    percentage: percentUsed,
+    used,
+    entitlement,
+    details: `Plan: ${plan} · remaining: ${formatNumber(remaining)} · reset: ${resetAt} · overage: ${overage}`,
   }
 }
 
@@ -99,6 +118,33 @@ async function fetchUsage(): Promise<UsageState> {
   return buildUsageState(payload)
 }
 
+function formatStatusText(theme: Theme, state: UsageState): string {
+  const prefix = theme.fg('dim', 'Copilot: ')
+
+  if (state.type === 'error') {
+    return `${prefix}${theme.fg('warning', state.error)}`
+  }
+
+  if (state.type === 'loading') {
+    return `${prefix}${theme.fg('dim', 'loading…')}`
+  }
+
+  let percentageStr: string
+  if (state.percentage >= 90) {
+    percentageStr = theme.fg('error', '100%')
+  } else if (state.percentage >= 70) {
+    percentageStr = theme.fg('warning', `${formatNumber(state.percentage)}%`)
+  } else {
+    percentageStr = `${formatNumber(state.percentage)}%`
+  }
+
+  return theme.fg('text', `${prefix}${percentageStr} ${theme.fg('dim', `(${formatNumber(state.used)}/${formatNumber(state.entitlement)})`)}`)
+}
+
+function setStatus(ctx: ExtensionContext, theme: Theme, state: UsageState) {
+  ctx.ui.setStatus(STATUS_KEY, formatStatusText(theme, state))
+}
+
 export default function copilotUsageExtension(pi: ExtensionAPI) {
   let timer: NodeJS.Timeout | undefined
   let refreshPromise: Promise<void> | undefined
@@ -108,15 +154,19 @@ export default function copilotUsageExtension(pi: ExtensionAPI) {
 
     refreshPromise = (async () => {
       try {
-        const usage = await fetchUsage()
         const theme = ctx.ui.theme
-        ctx.ui.setStatus(STATUS_KEY, theme.fg('accent', usage.status))
-        if (notify) ctx.ui.notify(`${usage.status} — ${usage.detail}`, 'info')
+        const usage = await fetchUsage()
+        setStatus(ctx, theme, usage)
+        if (notify) ctx.ui.notify(theme.fg('text', `${formatStatusText(theme, usage)} — ${usage.details}`), 'info')
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         const theme = ctx.ui.theme
-        ctx.ui.setStatus(STATUS_KEY, theme.fg('dim', 'GH: erreur'))
-        if (notify) ctx.ui.notify(`Impossible de lire usage Copilot: ${message}`, 'error')
+        setStatus(ctx, theme, {
+          type: 'error',
+          error: 'error',
+          details: `Copilot Fetch error: ${message}`,
+        })
+        if (notify) ctx.ui.notify(`Copilot Fetch error: ${message}`, 'error')
       }
     })()
 
@@ -128,15 +178,18 @@ export default function copilotUsageExtension(pi: ExtensionAPI) {
   }
 
   pi.registerCommand('copilot-usage', {
-    description: 'Rafraîchir et afficher usage actuel des demandes Premium Copilot',
-    handler: async (_args, ctx) => {
+    description: 'Refresh and display current usage of Copilot Premium requests',
+    async handler(_args, ctx) {
       await refresh(ctx, true)
     },
   })
 
   pi.on('session_start', async (_event, ctx) => {
     const theme = ctx.ui.theme
-    ctx.ui.setStatus(STATUS_KEY, theme.fg('dim', 'GH: chargement…'))
+    setStatus(ctx, theme, {
+      type: 'loading',
+      details: 'loading…',
+    })
     await refresh(ctx, false)
 
     if (timer) clearInterval(timer)
