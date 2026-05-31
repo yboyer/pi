@@ -26,9 +26,9 @@ function formatTokens(count: number): string {
 function sanitizeStatusText(text: string): string {
   // Replace newlines, tabs, carriage returns with space, then collapse multiple spaces
   return text
-    .replace(/[\r\n\t]/g, " ")
-    .replace(/ +/g, " ")
-    .trim();
+    .replace(/[\r\n\t]/g, ' ')
+    .replace(/ +/g, ' ')
+    .trim()
 }
 
 export default function (pi: ExtensionAPI) {
@@ -38,16 +38,15 @@ export default function (pi: ExtensionAPI) {
 
       return {
         dispose: unsub,
-        invalidate() { },
+        invalidate() {},
         render(width: number): string[] {
-          const extensionStatuses = footerData.getExtensionStatuses();
-          const extensionStatusesClone = new Map(extensionStatuses); // Clone to avoid mutating original
+          const extensionStatuses = footerData.getExtensionStatuses()
+          const extensionStatusesClone = new Map(extensionStatuses) // Clone to avoid mutating original
           extensionStatusesClone.forEach((value, key) => {
             // Sanitize status text to prevent control characters from breaking the footer layout
-            const sanitized = sanitizeStatusText(value);
-            extensionStatusesClone.set(key, sanitized);
-          });
-
+            const sanitized = sanitizeStatusText(value)
+            extensionStatusesClone.set(key, sanitized)
+          })
 
           // Compute tokens from ctx (already accessible to extensions)
           let totalInput = 0
@@ -73,19 +72,6 @@ export default function (pi: ExtensionAPI) {
           const contextPercentValue = contextUsage?.percent ?? 0
           const contextPercent =
             contextUsage?.percent !== null ? contextPercentValue.toFixed(1) : '?'
-
-          // Replace home directory with ~
-          let pwd = ctx.cwd
-          const home = process.env.HOME || process.env.USERPROFILE
-          if (home && pwd.startsWith(home)) {
-            pwd = `~${pwd.slice(home.length)}`
-          }
-
-          // Add session name if set
-          const sessionName = ctx.sessionManager.getSessionName()
-          if (sessionName) {
-            pwd = `${pwd} • ${sessionName}`
-          }
 
           // Build stats line
           const statsParts = []
@@ -131,73 +117,61 @@ export default function (pi: ExtensionAPI) {
 
           let statsLeft = statsParts.join(' ')
 
-
-          // Add model name on the right side, plus thinking level if model supports it
-          const modelName = ctx.model?.id || "no-model";
-
-          let statsLeftWidth = visibleWidth(statsLeft);
+          let statsLeftWidth = visibleWidth(statsLeft)
 
           // If statsLeft is too wide, truncate it
           if (statsLeftWidth > width) {
-            statsLeft = truncateToWidth(statsLeft, width, "...");
-            statsLeftWidth = visibleWidth(statsLeft);
+            statsLeft = truncateToWidth(statsLeft, width, '...')
+            statsLeftWidth = visibleWidth(statsLeft)
           }
 
           // Calculate available space for padding (minimum 2 spaces between stats and model)
-          const minPadding = 2;
+          const minPadding = 2
 
-          // Add thinking level indicator if model supports reasoning
-          let rightSide = modelName;
-          if (ctx.model?.reasoning) {
-            const thinkingLevel = pi.getThinkingLevel() || "off";
-            rightSide = `${modelName} • ${(thinkingLevel === "off" ? 'thinking off' : thinkingLevel)}`
-          }
+          const rightSide = ''
 
-          const rightSideWidth = visibleWidth(rightSide);
-          const totalNeeded = statsLeftWidth + minPadding + rightSideWidth;
+          const rightSideWidth = visibleWidth(rightSide)
+          const totalNeeded = statsLeftWidth + minPadding + rightSideWidth
 
-          let statsLine: string;
+          let statsLine: string
           if (totalNeeded <= width) {
             // Both fit - add padding to right-align model
-            const padding = " ".repeat(width - statsLeftWidth - rightSideWidth);
-            statsLine = statsLeft + padding + rightSide;
+            const padding = ' '.repeat(width - statsLeftWidth - rightSideWidth)
+            statsLine = statsLeft + padding + rightSide
           } else {
             // Need to truncate right side
-            const availableForRight = width - statsLeftWidth - minPadding;
+            const availableForRight = width - statsLeftWidth - minPadding
             if (availableForRight > 0) {
-              const truncatedRight = truncateToWidth(rightSide, availableForRight, "");
-              const truncatedRightWidth = visibleWidth(truncatedRight);
-              const padding = " ".repeat(Math.max(0, width - statsLeftWidth - truncatedRightWidth));
-              statsLine = statsLeft + padding + truncatedRight;
+              const truncatedRight = truncateToWidth(rightSide, availableForRight, '')
+              const truncatedRightWidth = visibleWidth(truncatedRight)
+              const padding = ' '.repeat(Math.max(0, width - statsLeftWidth - truncatedRightWidth))
+              statsLine = statsLeft + padding + truncatedRight
             } else {
               // Not enough space for right side at all
-              statsLine = statsLeft;
+              statsLine = statsLeft
             }
           }
 
           // Apply dim to each part separately. statsLeft may contain color codes (for context %)
           // that end with a reset, which would clear an outer dim wrapper. So we dim the parts
           // before and after the colored section independently.
-          const dimStatsLeft = theme.fg("dim", statsLeft);
-          const remainder = statsLine.slice(statsLeft.length); // padding + rightSide
-          const dimRemainder = theme.fg("dim", remainder);
+          const dimStatsLeft = theme.fg('dim', statsLeft)
+          const remainder = statsLine.slice(statsLeft.length) // padding + rightSide
+          const dimRemainder = theme.fg('dim', remainder)
 
-
-
-          const pwdLine = truncateToWidth(theme.fg("dim", pwd), width, theme.fg("dim", "..."));
-          const lines = [pwdLine, dimStatsLeft + dimRemainder];
+          const lines = [dimStatsLeft + dimRemainder]
 
           // Add extension statuses on a single line, sorted by key alphabetically
           if (extensionStatusesClone.size > 0) {
             const sortedStatuses = Array.from(extensionStatusesClone.entries())
               .sort(([a], [b]) => a.localeCompare(b))
-              .map(([, text]) => sanitizeStatusText(text));
-            const statusLine = sortedStatuses.join(" ");
+              .map(([, text]) => sanitizeStatusText(text))
+            const statusLine = sortedStatuses.join(' ')
             // Truncate to terminal width with dim ellipsis for consistency with footer style
-            lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
+            lines.push(truncateToWidth(statusLine, width, theme.fg('dim', '...')))
           }
 
-          return lines;
+          return lines
         },
       }
     })
@@ -212,10 +186,10 @@ export default function (pi: ExtensionAPI) {
     if (ctx.hasUI) ctx.ui.setFooter(undefined)
   })
 
-  pi.on("thinking_level_select", async (_event, ctx) => {
-    if (!ctx.hasUI) return;
-    installFooter(ctx);
-  });
+  pi.on('thinking_level_select', async (_event, ctx) => {
+    if (!ctx.hasUI) return
+    installFooter(ctx)
+  })
 
   pi.registerCommand('footer', {
     description: 'Enable the blue flowing gradient session footer',
