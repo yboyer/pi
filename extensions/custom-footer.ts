@@ -161,6 +161,11 @@ export default function (pi: ExtensionAPI) {
 
           const lines = [dimStatsLeft + dimRemainder]
 
+          if (extensionStatusesClone.has('yboyer-git-status')) {
+            // Already displayed in the editor
+            extensionStatusesClone.delete('yboyer-git-status')
+          }
+
           // Add extension statuses on a single line, sorted by key alphabetically
           if (extensionStatusesClone.size > 0) {
             const sortedStatuses = Array.from(extensionStatusesClone.entries())
